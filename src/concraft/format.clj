@@ -90,7 +90,7 @@
     (nil? b) 1
     :else (compare a b)))
 
-(defn- compare-interp
+(defn compare-interp
   "Compare two Interp maps in Haskell Ord order:
    base, tag, commonness, qualifier, meta-info, eos."
   [a b]
