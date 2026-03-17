@@ -72,15 +72,53 @@
 
 (defn- segment
   "Split a sentence DAG at EOS boundaries.
-   Returns a list of sub-DAG sentences."
+   Finds edges where all interps have eos=true, and splits the DAG
+   at the head node of those edges. Returns a list of sub-DAGs."
   [dag]
-  ;; For small-input.dag (single sentence), just return as-is
-  ;; The segmentation model marks the last word with eos=true,
-  ;; meaning this is a single sentence. No splitting needed
-  ;; unless there are multiple sentences in the paragraph.
-  ;; For now, return the DAG as a single sentence.
-  ;; TODO: implement proper DAG splitting for multi-sentence paragraphs.
-  [dag])
+  (let [edges (dag/dag-edges dag)
+        ;; Find EOS split points: edges where eos=true
+        eos-edges (filter (fn [eid]
+                            (let [seg (dag/edge-label dag eid)
+                                  tags (:tags seg)]
+                              (and (seq tags)
+                                   (some :eos (keys tags)))))
+                          edges)
+        ;; Split node = head of the EOS edge (unless it's the very last edge)
+        split-nodes (set (keep (fn [eid]
+                                 (when-not (dag/final-edge? dag eid)
+                                   (dag/ends-with dag eid)))
+                               eos-edges))]
+    (if (empty? split-nodes)
+      [dag]
+      ;; Split DAG at each split node
+      (let [;; Build sub-DAGs by partitioning edges
+            all-edges (vec edges)
+            sub-dags (loop [remaining all-edges
+                            result []]
+                       (if (empty? remaining)
+                         result
+                         (let [;; Take edges until we hit a split point
+                               [before after]
+                               (split-with (fn [eid]
+                                             (not (contains? split-nodes (dag/ends-with dag eid))))
+                                           remaining)
+                               ;; Include the split edge itself in this segment
+                               split-edge (first after)
+                               segment-edges (if split-edge
+                                               (conj (vec before) split-edge)
+                                               (vec before))
+                               rest-edges (if split-edge
+                                            (rest after)
+                                            after)]
+                           (when (seq segment-edges)
+                             ;; Build a sub-DAG from these edges
+                             (let [sub-edge-data (mapv (fn [eid]
+                                                         (let [e (get-in dag [:edge-map eid])]
+                                                           {:tail (:tail e) :head (:head e) :label (:label e)}))
+                                                       segment-edges)]
+                               (recur (vec rest-edges)
+                                      (conj result (dag/from-edges sub-edge-data))))))))]
+        (if (empty? sub-dags) [dag] sub-dags)))))
 
 ;; ============================================================
 ;; Guess injection

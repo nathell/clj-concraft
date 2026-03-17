@@ -36,12 +36,13 @@
    Each edge label is a Seg = {:word {:orth, :known, :word-info}, :tags WMap}
    where WMap = {Interp → Double}."
   [rows]
-  (let [;; Group by (tail, head) preserving order
-        groups (reduce (fn [acc row]
-                         (let [k [(:tail-node row) (:head-node row)]]
-                           (update acc k (fnil conj []) row)))
-                       (array-map)
-                       rows)
+  (let [;; Group by (tail, head) preserving insertion order
+        ;; Use a LinkedHashMap to avoid array-map's 8-entry limit
+        lhm (java.util.LinkedHashMap.)
+        _ (doseq [row rows]
+            (let [k [(:tail-node row) (:head-node row)]]
+              (.put lhm k (conj (or (.get lhm k) []) row))))
+        groups (into [] lhm)
         ;; Build edges from groups
         edges (mapv (fn [[[tail head] rows]]
                       (let [first-row (first rows)

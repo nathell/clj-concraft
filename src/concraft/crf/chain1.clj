@@ -256,9 +256,13 @@
                                ;; u = sum of all α(prev, k) across all prev edges
                                u-terms (for [pe prev-eids
                                              :let [prev-labels (edge-labels model (dag/edge-label encoded-dag pe))
-                                                   ^doubles prev-alpha (get alpha pe)]
+                                                   prev-alpha (get alpha pe)]
+                                             :when (do (when (nil? prev-alpha)
+                                                         (throw (ex-info "Missing alpha for prev edge"
+                                                                         {:eid eid :pe pe :alpha-keys (keys alpha)})))
+                                                       true)
                                              k (range (count prev-labels))]
-                                         (aget prev-alpha k))
+                                         (aget ^doubles prev-alpha k))
                                u (log-sum-exp (vec u-terms))
                                ;; v = sum of α(prev, k) where prev-label has transition to x
                                ;; w = sum of α(prev, k) × transition_weight(prev→x)

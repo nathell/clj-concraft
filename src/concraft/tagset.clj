@@ -35,8 +35,9 @@
         pos (first parts)
         vals (rest parts)
         rule (get rules pos)]
-    (when (nil? rule)
-      (throw (ex-info "Unknown POS" {:pos pos :tag tag-text})))
+    (if (nil? rule)
+      ;; Unknown POS (e.g., "ign") — return tag with just POS, no attributes
+      {:pos pos :atts (sorted-map)}
     (let [atts (loop [rule-rest rule
                       vals-rest vals
                       acc (sorted-map)]
@@ -48,7 +49,7 @@
                        (recur (rest rule-rest)
                               (rest vals-rest)
                               (assoc acc attr (first vals-rest)))))))]
-      {:pos pos :atts atts})))
+      {:pos pos :atts atts}))))
 
 (defn show-tag
   "Convert a structured tag back to colon-separated text.
