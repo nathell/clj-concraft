@@ -221,4 +221,6 @@
               (.append sb "\t")
               (.append sb (if is-disamb "disamb" ""))
               (.append sb "\n"))))))
+    ;; Trailing blank line (paragraph separator)
+    (.append sb "\n")
     (.toString sb)))

@@ -254,18 +254,15 @@
                     v-lb-k (when v-lb (nth v-lb k))
                     w-lb-k (when w-lb (nth w-lb k))]
                 (cond
-                  ;; All three known: TFeat3
+                  ;; All three known: ONLY TFeat3
                   (and u-lb-k v-lb-k w-lb-k)
-                  (+ acc (phi values (array-lookup-3d (:t3-map layer) u-lb-k v-lb-k w-lb-k))
-                         (phi values (array-lookup-2d (:t2-map layer) u-lb-k v-lb-k))
-                         (phi values (array-lookup-1d (:t1-map layer) u-lb-k)))
+                  (+ acc (phi values (array-lookup-3d (:t3-map layer) u-lb-k v-lb-k w-lb-k)))
 
-                  ;; Two known: TFeat2
+                  ;; Two known: ONLY TFeat2
                   (and u-lb-k v-lb-k)
-                  (+ acc (phi values (array-lookup-2d (:t2-map layer) u-lb-k v-lb-k))
-                         (phi values (array-lookup-1d (:t1-map layer) u-lb-k)))
+                  (+ acc (phi values (array-lookup-2d (:t2-map layer) u-lb-k v-lb-k)))
 
-                  ;; One known: TFeat1
+                  ;; One known: ONLY TFeat1
                   u-lb-k
                   (+ acc (phi values (array-lookup-1d (:t1-map layer) u-lb-k)))
 
