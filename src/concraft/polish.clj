@@ -248,7 +248,7 @@
               (.append sb "\t")
               (.append sb (:orth word))
               (.append sb "\t")
-              (.append sb (or (:base interp) (:orth word)))
+              (.append sb (if (:known word) (or (:base interp) (:orth word)) (:orth word)))
               (.append sb "\t")
               (.append sb (:tag interp))
               (.append sb "\t")
