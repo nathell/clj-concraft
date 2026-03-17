@@ -174,7 +174,11 @@
                                (get label-codec-to (simplify-tag tag)))
                              ext-tags))]
          {:obs (vec int-obs)
-          :lbs (when (seq int-lbs) (vec (sort (distinct int-lbs))))}))
+          ;; For OOV words: lbs = nil (unconstrained, use r0)
+          ;; For known words: lbs = encoded label set
+          :lbs (when (:known (:word seg))
+                 (when (seq int-lbs)
+                   (vec (sort (distinct int-lbs)))))}))
      dag)))
 
 ;; -- Potential computation --
@@ -276,8 +280,11 @@
                                w (log-sum-exp (mapv second vw))
                                ;; (u - v) + w in log-domain: log(exp(u) - exp(v) + exp(w))
                                ;; Use linear for the subtraction
-                               uv-plus-w (Math/log (+ (- (Math/exp u) (Math/exp v))
-                                                      (Math/exp w)))]
+                               uv-plus-w (let [val (+ (- (Math/exp u) (Math/exp v))
+                                                       (Math/exp w))]
+                                           (if (pos? val)
+                                             (Math/log val)
+                                             neg-inf))]
                            (aset a j (+ (aget psi j) uv-plus-w))))))
                    (assoc alpha eid a)))
                {}

@@ -224,7 +224,14 @@
               head-node (dag/ends-with dag eid)
               edge-margs (get marginals eid {})
               edge-disambs (get disambs eid {})]
-          (doseq [[interp _] (sort-by key fmt/compare-interp tags)]
+          ;; For OOV words, append an implicit "ign" interp (as Haskell does)
+          (let [sorted-tags (sort-by key fmt/compare-interp tags)
+                all-interps (if (:known word)
+                              sorted-tags
+                              (concat sorted-tags
+                                      [[{:base "none" :tag "ign" :commonness nil
+                                         :qualifier nil :meta-info nil :eos false} 0.0]]))]
+          (doseq [[interp _] all-interps]
             ;; Look up probability from marginals (strip eos for lookup)
             (let [clean-interp (assoc interp :eos false)
                   prob (or (get edge-margs interp)
@@ -258,7 +265,7 @@
               (.append sb (or (:word-info word) ""))
               (.append sb "\t")
               (.append sb (if is-disamb "disamb" ""))
-              (.append sb "\n"))))))
+              (.append sb "\n")))))))
     ;; Trailing blank line (paragraph separator)
     (.append sb "\n")
     (.toString sb)))

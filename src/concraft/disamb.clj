@@ -70,15 +70,23 @@
 
 (defn disamb-best
   "Find the best tag for each edge (Viterbi-like via marginals argmax).
-   Returns {edge-id → {interp → Bool}} where True = on optimal path."
+   Returns {edge-id → {interp → Bool}} where True = on optimal path.
+   Multiple interps that map to the same CRF atoms all get True if any does."
   [disamb tagset dag]
-  (let [probs (disamb-probs disamb tagset :marginals dag)]
+  (let [{:keys [tiers]} disamb
+        probs (disamb-probs disamb tagset :marginals dag)
+        simplify (fn [interp] (simplify-tag-for-disamb tagset interp))
+        split (fn [simplified] (split-for-disamb tiers simplified))]
     (into {}
           (map (fn [[eid interp-probs]]
-                 (let [best-interp (when (seq interp-probs)
-                                     (key (apply max-key val interp-probs)))]
-                   [eid (into {}
-                              (map (fn [[interp _]]
-                                     [interp (= interp best-interp)]))
-                              interp-probs)])))
+                 (if (empty? interp-probs)
+                   [eid {}]
+                   ;; Find the best atoms (CRF-level comparison)
+                   (let [best-interp (key (apply max-key val interp-probs))
+                         best-atoms (split (simplify best-interp))]
+                     [eid (into {}
+                                (map (fn [[interp _]]
+                                       (let [atoms (split (simplify interp))]
+                                         [interp (= atoms best-atoms)])))
+                                interp-probs)]))))
           probs)))
