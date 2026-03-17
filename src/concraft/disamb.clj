@@ -69,24 +69,43 @@
           (dag/dag-edges dag))))
 
 (defn disamb-best
-  "Find the best tag for each edge (Viterbi-like via marginals argmax).
+  "Find the best tag for each edge using Viterbi (global optimal path).
    Returns {edge-id → {interp → Bool}} where True = on optimal path.
+   Edges NOT on the optimal DAG path get all-False.
    Multiple interps that map to the same CRF atoms all get True if any does."
   [disamb tagset dag]
-  (let [{:keys [tiers]} disamb
-        probs (disamb-probs disamb tagset :marginals dag)
+  (let [{:keys [tiers schema-conf crf]} disamb
+        schema-fn (schema/from-conf schema-conf)
+        model (:model crf)
+        label-codecs (:label-codecs crf)
         simplify (fn [interp] (simplify-tag-for-disamb tagset interp))
-        split (fn [simplified] (split-for-disamb tiers simplified))]
+        split (fn [simplified] (split-for-disamb tiers simplified))
+        ;; Encode sentence
+        encoded-dag (crf2/encode-sent crf schema-fn dag simplify split)
+        ;; Run Viterbi to find globally optimal path
+        viterbi-result (crf2/fast-tag model encoded-dag)]
+    ;; Map back: for each edge, check if it's on the optimal path
+    ;; and which interp matches the Viterbi-chosen label
     (into {}
-          (map (fn [[eid interp-probs]]
-                 (if (empty? interp-probs)
-                   [eid {}]
-                   ;; Find the best atoms (CRF-level comparison)
-                   (let [best-interp (key (apply max-key val interp-probs))
-                         best-atoms (split (simplify best-interp))]
-                     [eid (into {}
-                                (map (fn [[interp _]]
-                                       (let [atoms (split (simplify interp))]
-                                         [interp (= atoms best-atoms)])))
-                                interp-probs)]))))
-          probs)))
+          (map (fn [eid]
+                 (let [seg (dag/edge-label dag eid)
+                       chosen-cbix (get viterbi-result eid)  ;; nil if not on optimal path
+                       enc (dag/edge-label encoded-dag eid)]
+                   [eid (if (nil? chosen-cbix)
+                          ;; Edge not on optimal path: all False
+                          (into {} (map (fn [[interp _]] [interp false]) (:tags seg)))
+                          ;; Edge on optimal path: match interps to chosen Cb
+                          (let [chosen-cb (nth (:lbs enc) chosen-cbix)
+                                ;; Map each interp to its encoded Cb
+                                interp-results
+                                (into {}
+                                      (map (fn [[interp _]]
+                                             (let [atoms (split (simplify interp))
+                                                   int-atoms (vec (map-indexed
+                                                                    (fn [k atom]
+                                                                      (get (:to (nth label-codecs k)) atom))
+                                                                    atoms))]
+                                               [interp (= int-atoms chosen-cb)])))
+                                      (:tags seg))]
+                            interp-results))])))
+          (dag/dag-edges dag))))

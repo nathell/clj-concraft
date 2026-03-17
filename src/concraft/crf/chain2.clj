@@ -444,3 +444,79 @@
                                   [(:lb-ix eix) (Math/exp prob)]))
                               eixs)])))
           edges)))
+
+(defn fast-tag
+  "Find the globally optimal label sequence using Viterbi (max-product forward + backtrack).
+   Returns {edge-id → CbIx} for edges on the optimal path, nil for edges not on it."
+  [model encoded-dag]
+  (let [edges (dag/dag-edges encoded-dag)
+        ;; Memoize psi
+        psi-cache (into {}
+                        (mapcat (fn [eid]
+                                  (map (fn [eix]
+                                         [eix (on-word model encoded-dag eix)])
+                                       (edge-ixs encoded-dag eid))))
+                        edges)
+        psi (fn [eix] (get psi-cache eix 0.0))
+
+        ;; Forward with argmax (storing backpointers)
+        ;; alpha(u, v) → [score, best-w]
+        alpha-cache (atom {})
+        alpha (fn alpha [u v]
+                (if-let [cached (get @alpha-cache [u v])]
+                  cached
+                  (let [result
+                        (cond
+                          (and (= u :beg) (= v :beg))
+                          [0.0 nil]
+
+                          (and (= u :end) (= v :end))
+                          (let [final-eids (filter #(dag/final-edge? encoded-dag %) edges)
+                                candidates (for [w (mapcat #(edge-ixs encoded-dag %) final-eids)]
+                                             (let [[score _] (alpha :end [:mid w])]
+                                               [(+ score (on-transition model encoded-dag nil nil w))
+                                                [:mid w]]))]
+                            (if (empty? candidates)
+                              [neg-inf nil]
+                              (apply max-key first candidates)))
+
+                          :else
+                          (let [v-eid (when (vector? v) (:edge-id (second v)))
+                                prev-eixs (prev-edge-ixs encoded-dag v-eid)
+                                candidates (for [w prev-eixs]
+                                             (let [w-pos (if w [:mid w] :beg)
+                                                   [prev-score _] (alpha v w-pos)]
+                                               [(+ prev-score
+                                                   (if (and (vector? u) (= (first u) :mid))
+                                                     (psi (second u))
+                                                     0.0)
+                                                   (on-transition model encoded-dag
+                                                                  (when (and (vector? u) (= (first u) :mid)) (second u))
+                                                                  (when (and (vector? v) (= (first v) :mid)) (second v))
+                                                                  (when w w)))
+                                                w-pos]))]
+                            (if (empty? candidates)
+                              [neg-inf nil]
+                              (apply max-key first candidates))))]
+                    (swap! alpha-cache assoc [u v] result)
+                    result)))
+
+        ;; Backtrack from End
+        [_ best-v] (alpha :end :end)]
+
+    ;; Trace back through the optimal path
+    (loop [u :end
+           v best-v
+           result {}]
+      (if (or (= v :beg) (nil? v))
+        result
+        (let [;; v is the current position on the path
+              edge-id (when (and (vector? v) (= (first v) :mid))
+                        (:edge-id (second v)))
+              lb-ix (when (and (vector? v) (= (first v) :mid))
+                      (:lb-ix (second v)))
+              [_ best-w] (alpha u v)
+              new-result (if edge-id
+                           (assoc result edge-id lb-ix)
+                           result)]
+          (recur v best-w new-result))))))
