@@ -251,41 +251,26 @@
                              sg-ix (aget ^longs (:sg-ixs-v model) lb)
                              sg-val (log-value values sg-ix)]
                          (aset a j (+ (aget psi j) sg-val))))
-                     ;; Non-initial: α(i,j) = ψ(i,j) × ((u - v) + w)
-                     ;; But in log-domain: log(ψ) + log((u - v) + w)
-                     ;; Need to work in linear domain for the (u-v)+w trick
+                     ;; Non-initial: α(i,j) = ψ(i,j) × Σ_prev,k [ α(prev,k) × T(k→j) ]
+                     ;; Direct log-domain sum (no (u-v)+w trick — avoids overflow)
                      (let [prev-eids (dag/prev-edges encoded-dag eid)]
                        (dotimes [j n]
                          (let [x (nth labels j)
-                               ;; u = sum of all α(prev, k) across all prev edges
-                               u-terms (for [pe prev-eids
-                                             :let [prev-labels (edge-labels model (dag/edge-label encoded-dag pe))
-                                                   prev-alpha (get alpha pe)]
-                                             :when (do (when (nil? prev-alpha)
-                                                         (throw (ex-info "Missing alpha for prev edge"
-                                                                         {:eid eid :pe pe :alpha-keys (keys alpha)})))
-                                                       true)
-                                             k (range (count prev-labels))]
-                                         (aget ^doubles prev-alpha k))
-                               u (log-sum-exp (vec u-terms))
-                               ;; v = sum of α(prev, k) where prev-label has transition to x
-                               ;; w = sum of α(prev, k) × transition_weight(prev→x)
                                prev-pairs (nth (:prev-ixs-v model) x)
-                               vw (for [pe prev-eids
-                                        :let [prev-labels (edge-labels model (dag/edge-label encoded-dag pe))
-                                              ^doubles prev-alpha (get alpha pe)]
-                                        [k ix] (intersect-sorted prev-pairs prev-labels)]
-                                    [(aget prev-alpha k) (+ (aget prev-alpha k) (log-value values ix))])
-                               v (log-sum-exp (mapv first vw))
-                               w (log-sum-exp (mapv second vw))
-                               ;; (u - v) + w in log-domain: log(exp(u) - exp(v) + exp(w))
-                               ;; Use linear for the subtraction
-                               uv-plus-w (let [val (+ (- (Math/exp u) (Math/exp v))
-                                                       (Math/exp w))]
-                                           (if (pos? val)
-                                             (Math/log val)
-                                             neg-inf))]
-                           (aset a j (+ (aget psi j) uv-plus-w))))))
+                               ;; Build a map from (prev-edge, label-ix) → transition log-weight
+                               trans-weights (into {}
+                                                   (for [pe prev-eids
+                                                         :let [prev-labels (edge-labels model (dag/edge-label encoded-dag pe))]
+                                                         [k ix] (intersect-sorted prev-pairs prev-labels)]
+                                                     [[pe k] (log-value values ix)]))
+                               ;; Sum α(prev,k) × T(k→j) for all (prev, k)
+                               terms (for [pe prev-eids
+                                           :let [prev-labels (edge-labels model (dag/edge-label encoded-dag pe))
+                                                 ^doubles prev-alpha (get alpha pe)]
+                                           k (range (count prev-labels))]
+                                       (+ (aget prev-alpha k)
+                                          (get trans-weights [pe k] 0.0)))]
+                           (aset a j (+ (aget psi j) (log-sum-exp (vec terms))))))))
                    (assoc alpha eid a)))
                {}
                edges)
@@ -326,32 +311,28 @@
                   (if (contains? final-set eid)
                     ;; Final edge: β(i,j) = 1 → log(1) = 0
                     (java.util.Arrays/fill b 0.0)
-                    ;; Non-final: β(i,j) = (u - v) + w
+                    ;; Non-final: β(i,j) = Σ_next,k [ β(next,k) × ψ(next,k) × T(j→k) ]
+                    ;; Direct log-domain sum (no (u-v)+w trick)
                     (let [next-eids (dag/next-edges encoded-dag eid)]
                       (dotimes [j n]
                         (let [y (nth labels j)
-                              ;; u = sum of β(next,k) × ψ(next,k)
-                              u-terms (for [ne next-eids
-                                            :let [next-labels (edge-labels model (dag/edge-label encoded-dag ne))
-                                                  ^doubles next-beta (get beta ne)
-                                                  ^doubles next-psi (get psi-cache ne)]
-                                            k (range (count next-labels))]
-                                        (+ (aget next-beta k) (aget next-psi k)))
-                              u (log-sum-exp (vec u-terms))
-                              ;; v, w with transition features
                               next-pairs (nth (:next-ixs-v model) y)
-                              vw (for [ne next-eids
-                                       :let [next-labels (edge-labels model (dag/edge-label encoded-dag ne))
-                                             ^doubles next-beta (get beta ne)
-                                             ^doubles next-psi (get psi-cache ne)]
-                                       [k ix] (intersect-sorted next-pairs next-labels)]
-                                   [(+ (aget next-beta k) (aget next-psi k))
-                                    (+ (aget next-beta k) (aget next-psi k) (log-value values ix))])
-                              v (log-sum-exp (mapv first vw))
-                              w (log-sum-exp (mapv second vw))
-                              uv-plus-w (Math/log (+ (- (Math/exp u) (Math/exp v))
-                                                     (Math/exp w)))]
-                          (aset b j uv-plus-w)))))
+                              ;; Build transition weight map
+                              trans-weights (into {}
+                                                  (for [ne next-eids
+                                                        :let [next-labels (edge-labels model (dag/edge-label encoded-dag ne))]
+                                                        [k ix] (intersect-sorted next-pairs next-labels)]
+                                                    [[ne k] (log-value values ix)]))
+                              ;; Sum β(next,k) × ψ(next,k) × T(j→k)
+                              terms (for [ne next-eids
+                                          :let [next-labels (edge-labels model (dag/edge-label encoded-dag ne))
+                                                ^doubles next-beta (get beta ne)
+                                                ^doubles next-psi (get psi-cache ne)]
+                                          k (range (count next-labels))]
+                                      (+ (aget next-beta k)
+                                         (aget next-psi k)
+                                         (get trans-weights [ne k] 0.0)))]
+                          (aset b j (log-sum-exp (vec terms)))))))
                   (assoc beta eid b)))
               {}
               (reverse edges))
