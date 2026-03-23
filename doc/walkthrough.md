@@ -30,10 +30,10 @@ This represents the output of a morphological analyzer (Morfeusz). Each word has
 Since this sentence has no segmentation ambiguity (each word spans exactly one edge), the DAG is a simple chain:
 
 ```
-node 0 —[edge 0: Zatrzasnął]→ node 1 —[edge 1: drzwi]→ node 2 —[edge 2: od]→ node 3 —[edge 3: mieszkania]→ node 4
+node 0 —[edge 0: Zatrzasnął]-> node 1 —[edge 1: drzwi]-> node 2 —[edge 2: od]-> node 3 —[edge 3: mieszkania]-> node 4
 ```
 
-**Code**: Parsing is handled by `concraft.format/parse-data` ([`src/concraft/format.clj`](../src/concraft/format.clj)), which splits text into paragraphs, then calls `parse-sent` → `rows->dag`. The rows are grouped by `(tail-node, head-node)` using a `LinkedHashMap` (to preserve insertion order), then each group becomes an edge in the DAG built by `concraft.dag/from-edges` ([`src/concraft/dag.clj`](../src/concraft/dag.clj)). Each edge label is a Seg containing `{:word {:orth, :known}, :tags {Interp → weight}}`.
+**Code**: Parsing is handled by `concraft.format/parse-data` ([`src/concraft/format.clj`](../src/concraft/format.clj)), which splits text into paragraphs, then calls `parse-sent` -> `rows->dag`. The rows are grouped by `(tail-node, head-node)` using a `LinkedHashMap` (to preserve insertion order), then each group becomes an edge in the DAG built by `concraft.dag/from-edges` ([`src/concraft/dag.clj`](../src/concraft/dag.clj)). Each edge label is a Seg containing `{:word {:orth, :known}, :tags {Interp -> weight}}`.
 
 ## Step 0: Model loading
 
@@ -105,7 +105,7 @@ All arithmetic is in log-domain for numerical stability: multiplications become 
 
 **Code**: The core inference functions are in `concraft.crf.chain1` ([`src/concraft/crf/chain1.clj`](../src/concraft/crf/chain1.clj)):
 - `compute-psi` computes ψ by intersecting each observation's `(Lb, FeatIx)` pairs with the edge's allowed labels, summing the corresponding log-weights from the `values` array.
-- `forward` iterates edges in topological order. For initial edges, α = ψ × start-feature weight. For others, it sums `α(prev, k) × T(k→j)` over all predecessor labels `k`, where `T` is the transition weight (looked up via `intersect-sorted` against `prev-ixs-v`). All in log-domain via `log-sum-exp`.
+- `forward` iterates edges in topological order. For initial edges, α = ψ × start-feature weight. For others, it sums `α(prev, k) × T(k->j)` over all predecessor labels `k`, where `T` is the transition weight (looked up via `intersect-sorted` against `prev-ixs-v`). All in log-domain via `log-sum-exp`.
 - `backward` is symmetric, iterating in reverse order, using `next-ixs-v` for transition weights.
 - `marginals` combines α, β, and Z to produce per-edge, per-label probabilities.
 
@@ -218,8 +218,8 @@ No features for positions -2 because only edge 2+ has a -2 neighbor (edge 0).
 
 The disambiguator has two tiers. Each morphosyntactic tag is split into two independent atoms:
 
-- **Tier 1** (`{pos, case, person}`): e.g., `praet:sg:m1:perf` → `{pos=praet, case=_, person=_}` (praet has no case or person)
-- **Tier 2** (`{number, gender, degree, aspect, ...}`): e.g., `praet:sg:m1:perf` → `{number=sg, gender=m1, aspect=perf}`
+- **Tier 1** (`{pos, case, person}`): e.g., `praet:sg:m1:perf` -> `{pos=praet, case=_, person=_}` (praet has no case or person)
+- **Tier 2** (`{number, gender, degree, aspect, ...}`): e.g., `praet:sg:m1:perf` -> `{number=sg, gender=m1, aspect=perf}`
 
 The CRF operates on each tier as an independent layer, allowing it to learn separate transition patterns for e.g. case agreement vs. number agreement.
 
@@ -288,28 +288,28 @@ Tags within each edge are sorted alphabetically by the Haskell `Ord` ordering of
 Input DAG (16 lines, 4 edges, 16 interpretations)
   │
   ├─ Step 1: GUESSER (CRF chain1, 103K params)
-  │   Feature extraction → encode → forward-backward → marginals
+  │   Feature extraction -> encode -> forward-backward -> marginals
   │   Assigns initial probabilities from word shape + context
-  │   Code: guesser.clj → schema.clj → crf/chain1.clj
+  │   Code: guesser.clj -> schema.clj -> crf/chain1.clj
   │
   ├─ Step 2: ADD EOS MARKERS
   │   Each tag duplicated into eos=true/eos=false variants
   │   Code: polish.clj (add-eos-markers)
   │
   ├─ Step 3: SEGMENTER (CRF chain2, 280K params, 1 tier)
-  │   Feature extraction → encode → Viterbi → resolve EOS
+  │   Feature extraction -> encode -> Viterbi -> resolve EOS
   │   Marks "mieszkania" as end-of-sentence
-  │   Code: disamb.clj → crf/chain2.clj (fast-tag) → polish.clj (resolve-eos, segment)
+  │   Code: disamb.clj -> crf/chain2.clj (fast-tag) -> polish.clj (resolve-eos, segment)
   │
   ├─ Step 4: DISAMBIGUATOR (CRF chain2, 6.4M params, 2 tiers)
-  │   Strip EOS → feature extraction → encode → marginals + Viterbi
+  │   Strip EOS -> feature extraction -> encode -> marginals + Viterbi
   │   Selects best tag per word using full sentence context
-  │   Code: disamb.clj → crf/chain2.clj (marginals, fast-tag) → positional.clj (split-tag)
+  │   Code: disamb.clj -> crf/chain2.clj (marginals, fast-tag) -> positional.clj (split-tag)
   │
   └─ Step 5: FORMAT OUTPUT
       Combine probabilities + EOS flags + disamb markers
-      Code: polish.clj (format-annotated-sents) → format.clj (compare-interp)
-      → Output DAG (16 lines, same 4 edges, with probabilities)
+      Code: polish.clj (format-annotated-sents) -> format.clj (compare-interp)
+      -> Output DAG (16 lines, same 4 edges, with probabilities)
 ```
 
 Total processing time: ~60ms (after model loading).
