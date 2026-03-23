@@ -42,22 +42,16 @@
 ;; Each `save` call (even with nil) increments the counter.
 ;; ============================================================
 
-(defn- ox-save
-  "Save an observation. Returns updated [counter, observations].
-   counter = current [Int] id, observations = accumulated list.
-   Even nil observations increment the counter."
-  [[counter obs] value]
-  (let [next-counter (update counter (dec (count counter)) inc)]
-    (if value
-      [next-counter (conj obs [counter value])]
-      [next-counter obs])))
+(def ox-tx
+  (comp (map-indexed vector)
+        (filter second)
+        (map (fn [[i x]] [[(inc i)] x]))))
 
 (defn- ox-exec
   "Execute a sequence of observation values, returning [([Int], Text)] pairs.
    values is a seq of (Maybe Text) — nil for missing observations."
   [values]
-  (let [[_ obs] (reduce ox-save [[1] []] values)]
-    obs))
+  (into [] ox-tx values))
 
 ;; ============================================================
 ;; Text observation helpers (from monad-ox Text module)
